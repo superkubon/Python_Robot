@@ -158,6 +158,129 @@ def verify_ik_with_fk(input_path):
             total += 1
 
     print(f"✅ IK → FK verified: {passed}/{total} points passed within {tolerance:.2f} mm tolerance.")
+def visualize_high_error_points(input_path, error_threshold=0.05):
+    x_all, y_all = [], []
+    x_err, y_err = [], []
+
+    with open(input_path, "r") as f:
+        for idx, line in enumerate(f):
+            result = parse_gcode_line(line)
+            if not result:
+                continue
+
+            x, y = result
+            x += offset_x
+            y += offset_y
+            z = Z_DRAWING_PLANE
+            T_target = make_target_position_only(x, y, z)
+            sol = robot.ikine_LM(T_target, mask=[1, 1, 1, 0, 0, 0])
+            if not sol.success:
+                continue
+
+            T_fk = robot.fkine(sol.q)
+            pos_fk = T_fk.t * 1000
+            error = np.linalg.norm(pos_fk - np.array([x, y, z]))
+
+            x_all.append(x)
+            y_all.append(y)
+            if error > error_threshold:
+                x_err.append(x)
+                y_err.append(y)
+
+    plt.figure(figsize=(8, 8))
+    plt.plot(x_all, y_all, linestyle='-', color='lightgray', label='All path')
+    plt.scatter(x_err, y_err, color='red', label=f'Error > {error_threshold} mm', zorder=10)
+    plt.title("High Error Points on XY Drawing Path")
+    plt.xlabel("X (mm)")
+    plt.ylabel("Y (mm)")
+    plt.legend()
+    plt.grid(True)
+    plt.axis("equal")
+    plt.show()
+
+def visualize_fk_drawing_from_gcode(input_path):
+    x_fk = []
+    y_fk = []
+
+    with open(input_path, "r") as f:
+        for idx, line in enumerate(f):
+            result = parse_gcode_line(line)
+            if not result:
+                continue
+
+            x, y = result
+            x += offset_x
+            y += offset_y
+            z = Z_DRAWING_PLANE
+            T_target = make_target_position_only(x, y, z)
+
+            sol = robot.ikine_LM(T_target, mask=[1, 1, 1, 0, 0, 0])
+            if not sol.success:
+                print(f"⚠️ IK failed at line {idx + 1}")
+                continue
+
+            T_fk = robot.fkine(sol.q)
+            pos_mm = T_fk.t * 1000  # Convert m to mm
+
+            x_fk.append(pos_mm[0])
+            y_fk.append(pos_mm[1])
+
+    plt.figure(figsize=(8, 8))
+    plt.plot(x_fk, y_fk, marker='o', linestyle='-', color='green')
+    plt.title("Sketch Reconstructed from Forward Kinematics")
+    plt.xlabel("X (mm)")
+    plt.ylabel("Y (mm)")
+    plt.axis("equal")
+    plt.grid(True)
+    plt.show(block=False)
+
+
+def visualize_first_n_points_fk(input_path, n=4):
+    x_input, y_input = [], []
+    x_fk, y_fk = [], []
+
+    with open(input_path, "r") as f:
+        count = 0
+        for idx, line in enumerate(f):
+            if count >= n:
+                break
+
+            result = parse_gcode_line(line)
+            if not result:
+                continue
+
+            x, y = result
+            x_offset = x + offset_x
+            y_offset = y + offset_y
+            T_target = make_target_position_only(x_offset, y_offset, Z_DRAWING_PLANE)
+
+            sol = robot.ikine_LM(T_target, mask=[1, 1, 1, 0, 0, 0])
+            if not sol.success:
+                print(f"⚠️ IK failed at line {idx+1}")
+                continue
+
+            T_fk = robot.fkine(sol.q)
+            pos_fk = T_fk.t * 1000  # m → mm
+
+            x_input.append(x_offset)
+            y_input.append(y_offset)
+            x_fk.append(pos_fk[0])
+            y_fk.append(pos_fk[1])
+            count += 1
+
+    plt.figure(figsize=(8, 8))
+    plt.plot(x_input, y_input, 'bo-', label='Original G-code Points (Offset)')
+    plt.plot(x_fk, y_fk, 'go--', label='FK Positions after IK')
+    for i in range(len(x_input)):
+        plt.text(x_input[i], y_input[i], f'P{i+1}', fontsize=10, color='blue')
+        plt.text(x_fk[i], y_fk[i], f'FK{i+1}', fontsize=10, color='green')
+    plt.title("First N Sketch Points: G-code vs FK")
+    plt.xlabel("X (mm)")
+    plt.ylabel("Y (mm)")
+    plt.legend()
+    plt.grid(True)
+    plt.axis("equal")
+    plt.show()
 
 # -------------------- Chạy toàn bộ --------------------
 if __name__ == "__main__":
@@ -165,5 +288,11 @@ if __name__ == "__main__":
     output_gcode = "D:/Work/Thesis/Robot_python/output_gcode/gcode_motor_movement_relative.txt"
     
     convert_gcode_to_motor_movement(input_gcode, output_gcode)
-    visualize_input_path(input_gcode)
+    # visualize_input_path(input_gcode)
     verify_ik_with_fk(input_gcode)
+    visualize_high_error_points(input_gcode)
+    visualize_fk_drawing_from_gcode(input_gcode)
+    visualize_first_n_points_fk(input_gcode, n=400)
+
+
+
