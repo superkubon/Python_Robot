@@ -227,12 +227,15 @@ def visualize_fk_drawing_from_gcode(input_path):
 
     plt.figure(figsize=(8, 8))
     plt.plot(x_fk, y_fk, marker='o', linestyle='-', color='green')
+    for i in range(len(x_fk)):
+        plt.text(x_fk[i], y_fk[i], f'point {i}', fontsize=8, color='darkgreen')
     plt.title("Sketch Reconstructed from Forward Kinematics")
     plt.xlabel("X (mm)")
     plt.ylabel("Y (mm)")
     plt.axis("equal")
     plt.grid(True)
     plt.show(block=False)
+
 
 
 def visualize_first_n_points_fk(input_path, n=4):
@@ -272,8 +275,8 @@ def visualize_first_n_points_fk(input_path, n=4):
     plt.plot(x_input, y_input, 'bo-', label='Original G-code Points (Offset)')
     plt.plot(x_fk, y_fk, 'go--', label='FK Positions after IK')
     for i in range(len(x_input)):
-        plt.text(x_input[i], y_input[i], f'P{i+1}', fontsize=10, color='blue')
-        plt.text(x_fk[i], y_fk[i], f'FK{i+1}', fontsize=10, color='green')
+        plt.text(x_input[i], y_input[i], f'point {i}', fontsize=10, color='blue')
+        plt.text(x_fk[i], y_fk[i], f'FK {i}', fontsize=10, color='green')
     plt.title("First N Sketch Points: G-code vs FK")
     plt.xlabel("X (mm)")
     plt.ylabel("Y (mm)")
@@ -288,11 +291,11 @@ if __name__ == "__main__":
     output_gcode = "D:/Work/Thesis/Robot_python/output_gcode/gcode_motor_movement_relative.txt"
     
     convert_gcode_to_motor_movement(input_gcode, output_gcode)
-    # visualize_input_path(input_gcode)
-    verify_ik_with_fk(input_gcode)
-    visualize_high_error_points(input_gcode)
+    # # visualize_input_path(input_gcode)
+    # verify_ik_with_fk(input_gcode)
+    # visualize_high_error_points(input_gcode)
     visualize_fk_drawing_from_gcode(input_gcode)
-    visualize_first_n_points_fk(input_gcode, n=400)
+    visualize_first_n_points_fk(input_gcode, n=2)
 
 
 

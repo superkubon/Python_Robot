@@ -6,22 +6,32 @@ from spatialmath import SE3
 L1, L2, L3 = 0.2, 0.15, 0.18
 deg = np.pi / 180
 robot = DHRobot([
-    RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=-np.pi, qlim=[-90 * deg, 90 * deg]),  # Joint 1 CW khi q1 tăng
-    RevoluteDH(d=0, a=L2, alpha=0,         qlim=[-75 * deg, 75 * deg]),               # Joint 2 CCW
-    RevoluteDH(d=0, a=L3, alpha=0,         qlim=[-120 * deg, 120 * deg])              # Joint 3 CCW
+    RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=-np.pi, qlim=[-90 * deg, 90 * deg]),
+    RevoluteDH(d=0, a=L2, alpha=0,         qlim=[-100 * deg, 100 * deg]),
+    RevoluteDH(d=0, a=L3, alpha=0,         qlim=[-120 * deg, 120 * deg])
 ], name='3DOF_Robot')
-
-
 
 # ===== Hệ số chuyển đổi góc → bước (mm) =====
 STEP_CONVERT = {
-    'X': 0.355555,   # cho khớp 1
-    'Y': 0.355555,   # cho khớp 2
-    'Z': 0.216666    # cho khớp 3
+    'X': 0.355555,
+    'Y': 0.355555,
+    'Z': 0.216666
 }
 
-# ===== Khởi tạo tư thế home =====
-q = np.zeros(3)
+# ===== Khởi tạo hoặc nhập tay tư thế ban đầu =====
+manual = input("🛠 Bạn có muốn nhập góc tay để xem robot.teach()? (y/n): ").strip().lower()
+if manual == 'y':
+    try:
+        q1_deg = float(input("🔧 Nhập q1 (deg): "))
+        q2_deg = float(input("🔧 Nhập q2 (deg): "))
+        q3_deg = float(input("🔧 Nhập q3 (deg): "))
+        q = np.radians([q1_deg, q2_deg, q3_deg])
+    except ValueError:
+        print("❌ Góc không hợp lệ. Dùng tư thế mặc định (0,0,0)")
+        q = np.zeros(3)
+else:
+    q = np.zeros(3)
+
 robot.teach(q)
 
 # ===== Hàm tính G-code cho 1 điểm =====
