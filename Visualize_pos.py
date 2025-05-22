@@ -5,10 +5,16 @@ from spatialmath import SE3
 # ===== Định nghĩa robot =====
 L1, L2, L3 = 0.2, 0.15, 0.18
 deg = np.pi / 180
+# robot = DHRobot([
+#     RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=0, qlim=[-90 * deg, 90 * deg]),
+#     RevoluteDH(d=0, a=L2, alpha=0,  offset=-np.pi/3,       qlim=[-100 * deg, 100 * deg]),
+#     RevoluteDH(d=0, a=L3, alpha=0, offset = np.pi/2,         qlim=[-120 * deg, 120 * deg])
+# ], name='3DOF_Robot')
+
 robot = DHRobot([
-    RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=-np.pi, qlim=[-90 * deg, 90 * deg]),
-    RevoluteDH(d=0, a=L2, alpha=0,         qlim=[-100 * deg, 100 * deg]),
-    RevoluteDH(d=0, a=L3, alpha=0,         qlim=[-120 * deg, 120 * deg])
+    RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=0, qlim=[-90 * deg, 90 * deg]),
+    RevoluteDH(d=0, a=L2, alpha=0,   offset=-np.pi/3,   qlim=[-100 * deg, 100 * deg]),
+    RevoluteDH(d=0, a=L3, alpha=0,   offset = np.pi/2,      qlim=[-120 * deg, 120 * deg])
 ], name='3DOF_Robot')
 
 # ===== Hệ số chuyển đổi góc → bước (mm) =====
@@ -34,20 +40,31 @@ else:
 
 robot.teach(q)
 
-# ===== Hàm tính G-code cho 1 điểm =====
-def compute_gcode_line(x, y, z):
+# ===== Hàm tính G-code cho 1 điểm với kiểm tra góc khớp nằm trong giới hạn =====
+def compute_gcode_line(x, y, z, max_attempts=10):
     T_goal = SE3(x, y, z)
-    ik_result = robot.ikine_LM(T_goal, mask=[1, 1, 1, 0, 0, 0])
+    
+    for _ in range(max_attempts):
+        ik_result = robot.ikine_LM(T_goal, mask=[1, 1, 1, 0, 0, 0])
+        if not ik_result.success:
+            continue
+        
+        q_deg = np.degrees(ik_result.q)
+        
+        # Kiểm tra góc có nằm trong giới hạn qlim không
+        within_limits = all(
+            low <= val <= high 
+            for val, (low, high) in zip(q_deg, [( -90, 90), (-90, 90), (-100, 100)])
+        )
+        if within_limits:
+            x_step = -q_deg[0] * STEP_CONVERT['X']
+            y_step = -q_deg[2] * STEP_CONVERT['Y']
+            z_step = q_deg[1] * STEP_CONVERT['Z']
+            gcode_line = f"G1 X{x_step:.3f} Y{y_step:.3f} Z{-z_step:.3f}"
+            return gcode_line, q_deg, None
 
-    if not ik_result.success:
-        return None, None, "❌ IK thất bại tại điểm ({:.3f}, {:.3f}, {:.3f})".format(x, y, z)
+    return None, None, f"❌ IK thất bại hoặc góc vượt giới hạn tại điểm ({x:.3f}, {y:.3f}, {z:.3f})"
 
-    q_deg = np.degrees(ik_result.q)
-    x_step = -q_deg[0] * STEP_CONVERT['X']
-    y_step = -q_deg[1] * STEP_CONVERT['Y']
-    z_step = q_deg[2] * STEP_CONVERT['Z']
-    gcode_line = f"G1 X{x_step:.3f} Y{y_step:.3f} Z{z_step:.3f}"
-    return gcode_line, q_deg, None
 
 # ===== Nhập số lượng điểm =====
 try:
