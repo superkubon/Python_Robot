@@ -1,261 +1,161 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from spatialmath import SE3
-import csv
 from roboticstoolbox import DHRobot, RevoluteDH
-from scipy.spatial import ConvexHull
-from spatialmath.base import tr2eul
+from spatialmath import SE3
+import re
 
-# --------------------- Robot Definition ---------------------
-L = [
-    RevoluteDH(d=0.1687, a=0, alpha=np.pi/2),
-    RevoluteDH(d=0, a=0.1556, alpha=0),
-    RevoluteDH(d=0.2271, a=0, alpha=-np.pi/2),
-    RevoluteDH(d=0.16, a=0, alpha=np.pi/2),
-    RevoluteDH(d=0, a=0.16, alpha=np.pi/2)
-]
-robot = DHRobot(L, name='My5DOFRobot')
+# ===== Định nghĩa robot =====
+L1, L2, L3 = 0.2, 0.15, 0.18
+deg = np.pi / 180
+robot = DHRobot([
+    RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=0, qlim=[-90 * deg, 90 * deg]),
+    RevoluteDH(d=0, a=L2, alpha=0, offset=-np.pi/3, qlim=[-75 * deg, 75 * deg]),
+    RevoluteDH(d=0, a=L3, alpha=0, offset=np.pi/2, qlim=[-120 * deg, 120 * deg])
+], name='3DOF_Robot')
 
-gear_ratios = [1/40, 1/81, 1.0, 1.0, 1/36]
-motor_resolution_deg = [0.225, 0.45, 0.45, 0.0140625, 0.225]
-feedrates = [2700, 3300, 3000, 3500, 3200]  # mm/min
+# ===== Hệ số chuyển đổi góc → bước (mm) =====
+STEP_CONVERT = {
+    'X': 0.355555,
+    'Y': 0.355555,
+    'Z': 0.216666
+}
 
-# --------------------- Utility Functions ---------------------
-def convert_theta_to_steps_with_dir(theta_list_deg, gear_ratios=None):
-    if gear_ratios is None:
-        gear_ratios = [1.0] * 5
-    steps_with_dir = []
-    for theta, res, gear in zip(theta_list_deg, motor_resolution_deg, gear_ratios):
-        effective_theta = theta / gear
-        steps = abs(round(effective_theta / res))
-        direction = 1 if theta >= 0 else 0
-        steps_with_dir.append((steps, direction))
-    return steps_with_dir
+# ===== Hàm tính G-code giữ G0/G1 và ưu tiên nghiệm gần nhất =====
+def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
+    T_goal = SE3(x, y, z)
 
-from math import ceil
+    for attempt in range(max_attempts):
+        ik_result = robot.ikine_LM(T_goal, q0=q0, mask=[1, 1, 1, 0, 0, 0])
+        if not ik_result.success:
+            continue
 
-def apply_backlash_compensation(steps_dir_list, prev_dirs):
-    # Tính số bước cần bù dựa trên thông số backlash thực tế
-    backlash_degrees = [0.1167, 0.05, 0, 0, 0]  # giả định khớp 3–5 nếu chưa có dữ liệu
-    # motor_resolution_deg = [0.225, 0.45, 0.45, 0.0140625, 0.225]
-    backlash_steps = [ceil(b / res) for b, res in zip(backlash_degrees, motor_resolution_deg)]
+        q_deg = np.degrees(ik_result.q)
 
-    corrected = []
-    updated_prev_dirs = prev_dirs.copy()
-    for i, (steps, dir_current) in enumerate(steps_dir_list):
-        steps_corrected = steps
-        if dir_current != prev_dirs[i]:
-            steps_corrected += backlash_steps[i]
-            print(f'Joint {i+1}: Direction changed, adding {backlash_steps[i]} steps for backlash compensation.')
-        corrected.append((steps_corrected, dir_current))
-        updated_prev_dirs[i] = dir_current
-    return corrected, updated_prev_dirs
+        if -90 < q_deg[0] < 90 and -80 < q_deg[1] < 80 and -80 < q_deg[2] < 80:
+            x_step = -q_deg[0] * STEP_CONVERT['X']
+            y_step = -q_deg[1] * STEP_CONVERT['Y']
+            z_step = q_deg[2] * STEP_CONVERT['Z']
+            gcode_line = f"{cmd} X{x_step:.3f} Y{y_step:.3f} Z{z_step:.3f} F2700"
+            return gcode_line, q_deg, ik_result.q
+
+    return None, None, None
+
+# ===== Đọc và xử lý file G-code =====
+input_file = "D:/Work/Thesis/Robot_python/input_gcode/square_gcode.nc"
+pattern = re.compile(r"^(G0|G1)\s+.*?X([-+]?\d*\.?\d+)\s+Y([-+]?\d*\.?\d+)(?:\s+Z([-+]?\d*\.?\d+))?", re.IGNORECASE)
+
+gcode_lines = []
+q_list = []
+q0 = None  # Khởi tạo nghiệm ban đầu là None
+
+with open(input_file, "r") as f:
+    for line in f:
+        line = line.strip()
+        match = pattern.search(line)
+        if not match:
+            if line.startswith(("M3", "M5", "G28")):
+                gcode_lines.append(line)
+            continue
+
+        cmd = match.group(1).upper()
+        x_gcode = float(match.group(2))
+        y_gcode = float(match.group(3))
+        z_gcode = float(match.group(4)) if match.group(4) is not None else 0.0
+
+        SCALE = 1
+        x = (x_gcode / 1000.0) * SCALE
+        y = 0.1
+        z = (y_gcode / 1000.0) * SCALE
+
+        gcode_line, q_deg, q_rad = compute_gcode_line(cmd, x, 0.1, z, q0=q0)
+        if q_rad is None:
+            print(f"❌ IK thất bại tại điểm ({x:.3f}, {y:.3f}, {z:.3f})")
+        else:
+            print(f"✅ {gcode_line}")
+            print("🔧 Góc khớp (deg): q1 = {:.2f}, q2 = {:.2f}, q3 = {:.2f}".format(*q_deg))
+            gcode_lines.append(gcode_line)
+            q_list.append(q_deg)
+            q0 = q_rad  # Cập nhật nghiệm cho bước sau
+
+# ===== Ghi file kết quả G-code =====
+output_file = "square2.txt"
+with open(output_file, "w") as f:
+    for line in gcode_lines:
+        f.write(line + "\n")
+print(f"\n✅ Đã lưu {len(gcode_lines)} dòng vào '{output_file}'")
+
+# ===== Ghi file góc khớp ra file riêng =====
+angle_file = "square_joint_angles2.txt"
+with open(angle_file, "w") as f:
+    f.write("q1_deg,q2_deg,q3_deg\n")
+    for q_deg in q_list:
+        f.write("{:.4f},{:.4f},{:.4f}\n".format(*q_deg))
+print(f"✅ Đã lưu góc khớp vào '{angle_file}'")
 
 
-def make_target_with_z_up(x, y, z):
-    z_axis = np.array([0, 0, 1], dtype=float)
-    x_temp = np.array([1, 0, 0], dtype=float)
-    y_axis = np.cross(z_axis, x_temp)
-    if np.linalg.norm(y_axis) == 0:
-        x_temp = np.array([0, 1, 0], dtype=float)
-        y_axis = np.cross(z_axis, x_temp)
-    y_axis /= np.linalg.norm(y_axis)
-    x_axis = np.cross(y_axis, z_axis)
-    R = np.column_stack((x_axis, y_axis, z_axis))
-    return SE3.Rt(R, [x, y, z])
 
-def check_z_alignment(q_sol):
-    T4 = robot.fkine(q_sol, end=3)
-    T5 = robot.fkine(q_sol)
-    z4 = T4.R[:,2]
-    z5 = T5.R[:,2]
-    dot_product = np.dot(z4, z5)
-    alignment_deg = np.degrees(np.arccos(np.clip(dot_product, -1.0, 1.0)))
-    # if alignment_deg > 5:
-    #     print(f'⚠️  Cảnh báo: trục Z của khớp 4 và khâu cuối lệch {alignment_deg:.2f}°')
-    # else:
-    #     print(f'✅ Trục Z của khớp 4 và end-effector lệch {alignment_deg:.2f}° (chấp nhận được)')
 
-def format_motion_mapping(motion_mm):
-    labels = ['X', 'Y', 'Z', 'A', 'B']
-    return ' '.join(f'{label}{val:.2f}' for label, val in zip(labels, motion_mm))
-
-def generate_gcode(motion_mm):
-    labels = ['X', 'Y', 'Z', 'A', 'B']
-    t_i = [motion / fr for motion, fr in zip(motion_mm, feedrates)]
-    t_max = max(t_i)
-    synced_feedrates = [motion / t_max for motion in motion_mm]
-    gcode_motion = ' '.join(f'{label}{motion:.2f}' for label, motion in zip(labels, motion_mm))
-    gcode_feed = f'F{round(max(synced_feedrates))}'
-    print(f'🧾 G-code: G1 {gcode_motion} {gcode_feed}')
-    print(f'⏱  Thời gian hoàn thành: {t_max*60:.2f} giây')
-
-def check_ik_accuracy(T_target, T_check):
-    position_error = np.linalg.norm(T_target.t - T_check.t)
-    orientation_error = np.linalg.norm(tr2eul(T_target.R) - tr2eul(T_check.R))
-    print(f"📍 Sai số vị trí (m): {position_error:.6f}")
-    # print(f"📐 Sai số định hướng (rad): {orientation_error:.6f}")
-    return position_error, orientation_error
-
-def check_step_conversion_accuracy(theta_deg, steps_with_backlash):
-    theta_recovered = [step * res / gear for (step, _), res, gear in zip(steps_with_backlash, motor_resolution_deg, gear_ratios)]
-    recovery_error = np.abs(np.array(theta_deg) - np.array(theta_recovered))
-    print("🔁 Sai số quy đổi góc (deg):", recovery_error.round(4))
-    return recovery_error
-
-def run_workspace_visualization():
-    num_points = 3000
-    q_min = np.radians([-180, -90, -90, -90, -180])
-    q_max = np.radians([180, 90, 90, 90, 180])
-    points = []
-
-    for _ in range(num_points):
-        q_rand = q_min + (q_max - q_min) * np.random.rand(robot.n)
-        T_rand = robot.fkine(q_rand)
-        points.append(T_rand.t)
-
-    points = np.array(points)
-    hull = ConvexHull(points)
+#===== Plot đường đi đầu cuối =====
+if q_list:
+    positions = [robot.fkine(np.radians(q)).t for q in q_list]
+    xs = [p[0] for p in positions]
+    ys = [p[1] for p in positions]
+    zs = [p[2] for p in positions]
+    for i, pos in enumerate(positions):
+        print(f"Điểm {i}: X={pos[0]:.4f}, Y={pos[1]:.4f}, Z={pos[2]:.4f}")
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-    ax.plot_trisurf(points[:, 0], points[:, 1], points[:, 2], triangles=hull.simplices, color='cyan', alpha=0.3)
-    ax.set_xlabel('X (m)')
-    ax.set_ylabel('Y (m)')
-    ax.set_zlabel('Z (m)')
-    ax.set_title('Robot 3D Workspace')
-    ax.set_box_aspect([1,1,1])
+    ax.plot(xs, ys, zs, marker='o', label='Quỹ đạo đầu cuối')
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_zlabel("Z (m)")
+    ax.set_title("Đường đi thực tế của đầu cuối robot")
+    ax.legend()
     plt.show()
-
-def interactive_prompt():
-    print("\\n🔧 Nhập vị trí mong muốn (x, y, z) và chọn hướng khâu cuối:")
-    try:
-        x = float(input("Nhập x (m): "))
-        y = float(input("Nhập y (m): "))
-        z = float(input("Nhập z (m): "))
-        upright = input("Khâu cuối phải thẳng đứng? (y/n): ").strip().lower() == 'y'
-        T_target = make_target_with_z_up(x, y, z) if upright else SE3(x, y, z)
-        mask = [1,1,1,0,0,1] if upright else [1,1,1,0,0,0]
-        sol = robot.ikine_LM(T_target, mask=mask)
-        if not sol.success:
-            print("❌ Không tìm được nghiệm IK.")
-            return
-        q_sol = sol.q
-        T_check = robot.fkine(q_sol)
-        check_ik_accuracy(T_target, T_check)
-        theta_deg = np.degrees(q_sol)
-        motor_steps_and_dir = convert_theta_to_steps_with_dir(theta_deg, gear_ratios)
-        print('Steps + Direction (trước backlash compensation):', motor_steps_and_dir)
-        motor_steps_with_backlash, _ = apply_backlash_compensation(motor_steps_and_dir, [1,1,1,1,1])
-        print('Steps + Direction (sau backlash compensation):', motor_steps_with_backlash)
-        _ = check_step_conversion_accuracy(theta_deg, motor_steps_with_backlash)
-        motion_mm = [steps / 500.0 for steps, _ in motor_steps_with_backlash]
-        print('Mapping:', format_motion_mapping(motion_mm))
-        generate_gcode(motion_mm)
-        check_z_alignment(q_sol)
-        robot.plot(q_sol, block=False)
-        plt.title("Robot Configuration - Manual Input")
-        plt.show()
-    except ValueError:
-        print("⚠️ Lỗi: Giá trị nhập không hợp lệ.")
-
-import csv
-
-def run_test_cases():
-    T_list = [
-        make_target_with_z_up(0.4, 0, 0.4),
-        make_target_with_z_up(0.7, 0, 0.2),
-        make_target_with_z_up(0.3, 0.3, 0.4),
-        make_target_with_z_up(0, 0, 0.7),
-        make_target_with_z_up(0.5, 0.5, 0.5),
-        make_target_with_z_up(-0.25, -0.30, 0.46)
-    ]
-
-    position_errors = []
-    orientation_errors = []
-    prev_dirs = [1, 1, 1, 1, 1]
-    microsteps_all_cases = []
-
-    for i, T_target in enumerate(T_list):
-        sol = robot.ikine_LM(T_target, mask=[1, 1, 1, 0, 0, 1])
-        if not sol.success:
-            print(f'❌ IK failed for test case {i+1}')
-            position_errors.append(np.nan)
-            orientation_errors.append(np.nan)
-            continue
-
-        q_sol = sol.q
-        T_check = robot.fkine(q_sol)
-        print(f'\n🧪 Test case {i+1}:')
-        print('Góc khớp (deg):', np.degrees(q_sol))
-
-        pos_err, orient_err = check_ik_accuracy(T_target, T_check)
-        position_errors.append(pos_err)
-        orientation_errors.append(orient_err)
-
-        theta_deg = np.degrees(q_sol)
-        motor_steps_and_dir = convert_theta_to_steps_with_dir(theta_deg, gear_ratios)
-        print('Steps + Direction (trước backlash compensation):', motor_steps_and_dir)
-
-        motor_steps_with_backlash, prev_dirs = apply_backlash_compensation(motor_steps_and_dir, prev_dirs)
-        print('Steps + Direction (sau backlash compensation):', motor_steps_with_backlash)
-
-        _ = check_step_conversion_accuracy(theta_deg, motor_steps_with_backlash)
-
-        motion_mm = [steps / 500.0 for steps, _ in motor_steps_with_backlash]
-        print('Mapping:', format_motion_mapping(motion_mm))
-
-        generate_gcode(motion_mm)
-        check_z_alignment(q_sol)
-
-        robot.plot(q_sol, block=False)
-        plt.title(f'Test Case {i+1}')
-        plt.show()
-
-        # --- Ghi lại microstep ---
-        microstep_dict = {
-            "Test case": i+1,
-            "X": motor_steps_with_backlash[0][0],
-            "Y": motor_steps_with_backlash[1][0],
-            "Z": motor_steps_with_backlash[2][0],
-            "A": motor_steps_with_backlash[3][0],
-            "B": motor_steps_with_backlash[4][0]
-        }
-        microsteps_all_cases.append(microstep_dict)
-
-    # ✅ Hiển thị kết quả microsteps
-    print('\n📄 Tổng số microsteps cho từng test case:')
-    for entry in microsteps_all_cases:
-        print(entry)
-
-    # ✅ Ghi vào file CSV
-    with open("microsteps_log.csv", "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["Test case", "X", "Y", "Z", "A", "B"])
-        writer.writeheader()
-        writer.writerows(microsteps_all_cases)
-
-    # ✅ Trung bình sai số
-    valid_pos = [e for e in position_errors if not np.isnan(e)]
-    valid_orient = [e for e in orientation_errors if not np.isnan(e)]
-    print('\n📊 Trung bình sai số vị trí (m):', np.mean(valid_pos))
-    print('📊 Trung bình sai số định hướng (rad):', np.mean(valid_orient))
+else:
+    print("⚠️ Không có điểm nào để vẽ quỹ đạo.")
 
 
-if __name__ == "__main__":
-    while True:
-        print("\\n==================== Menu ====================")
-        print("1. Hiển thị không gian làm việc")
-        print("2. Chạy các test case")
-        print("3. Nhập vị trí mong muốn")
-        print("4. Thoát")
-        choice = input("Chọn tùy chọn (1-4): ")
-        if choice == '1':
-            run_workspace_visualization()
-        elif choice == '2':
-            run_test_cases()
-        elif choice == '3':
-            interactive_prompt()
-        elif choice == '4':
-            break
-        else:
-            print("⚠️ Lỗi: Vui lòng chọn tùy chọn hợp lệ.")
+from scipy.optimize import minimize
+
+# ===== Hàm tối ưu hóa nhiều khớp (vd: q0, q1), giữ nguyên q2 =====
+def optimize_joint_subset(q_fixed, joint_indices, T_target):
+    def cost(q_vars):
+        q_try = q_fixed.copy()
+        for i, idx in enumerate(joint_indices):
+            q_try[idx] = q_vars[i]
+        pos = robot.fkine(q_try).t
+        return np.linalg.norm(pos - T_target.t)
+
+    bounds = [robot.links[i].qlim for i in joint_indices]
+    x0 = [q_fixed[i] for i in joint_indices]
+
+    res = minimize(cost, x0, bounds=bounds, method='L-BFGS-B')
+
+    if res.success:
+        q_opt = q_fixed.copy()
+        for i, idx in enumerate(joint_indices):
+            q_opt[idx] = res.x[i]
+        return q_opt
+    else:
+        return q_fixed  # fallback
+
+# ===== Tối ưu q0, q1, giữ nguyên q2 cho từng bước =====
+q_rad_list = [np.radians(q) for q in q_list]
+optimized_q_rad_list = [q_rad_list[0]]  # bắt đầu bằng q đầu tiên
+
+for i in range(1, len(q_rad_list)):
+    q_fixed = q_rad_list[i]
+    T_target = robot.fkine(q_fixed)
+    q_optimized = optimize_joint_subset(q_fixed, joint_indices=[0, 1], T_target=T_target)
+    optimized_q_rad_list.append(q_optimized)
+
+# ===== Ghi file kết quả tối ưu hóa =====
+optimized_q_deg = [np.degrees(q) for q in optimized_q_rad_list]
+angle_file_opt = "square_joint_angles_optimized.txt"
+with open(angle_file_opt, "w") as f:
+    f.write("q1_deg,q2_deg,q3_deg\n")
+    for q in optimized_q_deg:
+        f.write("{:.4f},{:.4f},{:.4f}\n".format(*q))
+print(f"✅ Đã lưu góc khớp tối ưu vào '{angle_file_opt}'")

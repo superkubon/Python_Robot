@@ -5,10 +5,16 @@ from spatialmath import SE3
 # ===== Định nghĩa robot =====
 L1, L2, L3 = 0.2, 0.15, 0.18
 deg = np.pi / 180
+# robot = DHRobot([
+#     RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=0, qlim=[-90 * deg, 90 * deg]),
+#     RevoluteDH(d=0, a=L2, alpha=0,  offset=-np.pi/3,       qlim=[-100 * deg, 100 * deg]),
+#     RevoluteDH(d=0, a=L3, alpha=0, offset = np.pi/2,         qlim=[-120 * deg, 120 * deg])
+# ], name='3DOF_Robot')
+
 robot = DHRobot([
     RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=0, qlim=[-90 * deg, 90 * deg]),
-    RevoluteDH(d=0, a=L2, alpha=0,  offset=-np.pi/3,       qlim=[-100 * deg, 100 * deg]),
-    RevoluteDH(d=0, a=L3, alpha=0, offset = np.pi/2,         qlim=[-120 * deg, 120 * deg])
+    RevoluteDH(d=0, a=L2, alpha=0,   offset=-np.pi/3,   qlim=[-100 * deg, 100 * deg]),
+    RevoluteDH(d=0, a=L3, alpha=0,   offset = np.pi/2,      qlim=[-120 * deg, 120 * deg])
 ], name='3DOF_Robot')
 
 # ===== Hệ số chuyển đổi góc → bước (mm) =====
@@ -52,7 +58,7 @@ def compute_gcode_line(x, y, z, max_attempts=10):
         )
         if within_limits:
             x_step = -q_deg[0] * STEP_CONVERT['X']
-            y_step = q_deg[2] * STEP_CONVERT['Y']
+            y_step = -q_deg[2] * STEP_CONVERT['Y']
             z_step = q_deg[1] * STEP_CONVERT['Z']
             gcode_line = f"G1 X{x_step:.3f} Y{y_step:.3f} Z{-z_step:.3f}"
             return gcode_line, q_deg, None
