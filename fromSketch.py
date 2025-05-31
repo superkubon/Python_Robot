@@ -1,89 +1,67 @@
 import numpy as np
-from spatialmath import SE3
-from roboticstoolbox import DHRobot, RevoluteDH
-from math import ceil
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from roboticstoolbox import DHRobot, RevoluteDH
+from spatialmath import SE3
 
-# -------------------- Robot cấu hình --------------------
-L = [
-    RevoluteDH(d=0.1687, a=0, alpha=np.pi/2),
-    RevoluteDH(d=0, a=0.1556, alpha=0),
-    RevoluteDH(d=0.2271, a=0, alpha=-np.pi/2),
-    RevoluteDH(d=0.16, a=0, alpha=np.pi/2),
-    RevoluteDH(d=0, a=0.16, alpha=np.pi/2)
-]
-robot = DHRobot(L, name='My5DOFRobot')
+# Định nghĩa robot
+L1, L2, L3 = 0.2, 0.15, 0.18
+deg = np.pi / 180
+robot = DHRobot([
+    RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=np.pi/2, qlim=[-90 * deg, 90 * deg]),
+    RevoluteDH(d=0, a=L2, alpha=0, offset=-56.33802816901408 * np.pi / 180, qlim=[-75 * deg, 75 * deg]),
+    RevoluteDH(d=0, a=L3, alpha=0, offset=92.33610341643583 * np.pi / 180, qlim=[-120 * deg, 120 * deg])
+], name='3DOF_Robot')
 
-gear_ratios = [1/40, 1/81, 1.0, 1.0, 1/36]
-motor_resolution_deg = [0.225, 0.45, 0.45, 0.0140625, 0.225]
-backlash_degrees = [0.1167, 0.05, 0, 0, 0]
-Z_DRAWING_PLANE = 300  # mm
-offset_x = 150  # mm
-offset_y = 150  # mm
+# Danh sách các bộ giá trị q (đơn vị: độ → rad)
+q_deg_list = np.array([
+    [-6.3396,-25.0217,-4.0754],
+    [-6.3396,-9.6816,12.4923],
+    [-31.8486,0.9678,-3.5279],
+    [-31.8486,-11.7899,-20.2151],
+    [-6.3392,-25.0218,-4.0739]
+])
 
-# -------------------- G-code parsing --------------------
-def parse_gcode_line(line):
-    line = line.strip()
-    if line.startswith("G0") or line.startswith("G1"):
-        parts = line.split()
-        if len(parts) >= 3 and parts[1].startswith("X") and parts[2].startswith("Y"):
-            x = float(parts[1][1:])
-            y = float(parts[2][1:])
-            return x, y
-    return None
+q_rad_list = q_deg_list * deg
 
-def make_target_position_only(x, y, z):
-    return SE3(x / 1000.0, y / 1000.0, z / 1000.0)
+# Tính các điểm đầu cuối của robot
+points = []
+for q in q_rad_list:
+    T = robot.fkine(q)
+    points.append(T.t)
 
-# -------------------- Chuyển góc sang bước động cơ --------------------
-def convert_theta_to_steps_with_dir(theta_list_deg):
-    steps_with_dir = []
-    for theta, res, gear in zip(theta_list_deg, motor_resolution_deg, gear_ratios):
-        effective_theta = theta / gear
-        steps = round(effective_theta / res)
-        direction = 1 if steps >= 0 else 0
-        steps_with_dir.append((abs(steps), direction))
-    return steps_with_dir
+points = np.array(points)
 
-def apply_backlash_compensation(steps_dir_list, prev_dirs):
-    backlash_steps = [ceil(b / res) for b, res in zip(backlash_degrees, motor_resolution_deg)]
-    corrected = []
-    updated_prev_dirs = prev_dirs.copy()
-    for i, (steps, dir_current) in enumerate(steps_dir_list):
-        steps_corrected = steps
-        if dir_current != prev_dirs[i]:
-            steps_corrected += backlash_steps[i]
-        corrected.append((steps_corrected, dir_current))
-        updated_prev_dirs[i] = dir_current
-    return corrected, updated_prev_dirs
+# Tạo animation
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax.set_xlim(-0.5, 0.5)
+ax.set_ylim(-0.5, 0.5)
+ax.set_zlim(0, 0.5)
+ax.set_xlabel('X')
+ax.set_ylabel('Y')
+ax.set_zlabel('Z')
+line, = ax.plot([], [], [], 'o-', lw=2, color='blue')
+trail, = ax.plot([], [], [], '--', color='red')
 
-# -------------------- Chuyển G-code sang bước động cơ --------------------
-def convert_gcode_to_motor_movement(input_path, output_path):
-    prev_dirs = [1] * 5
-    prev_steps = [0] * 5
-    converted_gcode = []
-    total_lines = 0
-    successful = 0
+def init():
+    line.set_data([], [])
+    line.set_3d_properties([])
+    trail.set_data([], [])
+    trail.set_3d_properties([])
+    return line, trail
 
-    with open(input_path, "r") as f:
-        for line in f:
-            total_lines += 1
-            result = parse_gcode_line(line)
-            if not result:
-                print(f"⏭️  Skipping line {total_lines}: {line.strip()}")
-                continue
-            x, y = result
-            x += offset_x
-            y += offset_y
-            T_target = make_target_position_only(x, y, Z_DRAWING_PLANE)
-            sol = robot.ikine_LM(T_target, mask=[1, 1, 1, 0, 0, 0])
-            if not sol.success:
-                print(f"⚠️  IK failed at line {total_lines} → point ({x:.2f}, {y:.2f})")
-                continue
-            theta_deg = np.degrees(sol.q)
-            steps_with_dir = convert_theta_to_steps_with_dir(theta_deg)
-            steps_with_backlash, prev_dirs = apply_backlash_compensation(steps_with_dir, prev_dirs)
+def update(frame):
+    q = q_rad_list[frame]
+    links = robot.fkine_all(q)
+    xyz = np.array([link.t for link in links])
+    line.set_data(xyz[:, 0], xyz[:, 1])
+    line.set_3d_properties(xyz[:, 2])
+    trail.set_data(points[:frame+1, 0], points[:frame+1, 1])
+    trail.set_3d_properties(points[:frame+1, 2])
+    return line, trail
 
+<<<<<<< HEAD
             current_steps = [s for s, _ in steps_with_backlash]
             delta_steps = [abs(c - p) for c, p in zip(current_steps, prev_steps)]
             motion_mm = [ds / 500.0 for ds in delta_steps]
@@ -167,3 +145,8 @@ if __name__ == "__main__":
     convert_gcode_to_motor_movement(input_gcode, output_gcode)
     visualize_input_path(input_gcode)
     verify_ik_with_fk(input_gcode)
+=======
+ani = FuncAnimation(fig, update, frames=len(q_rad_list),
+                    init_func=init, blit=False, repeat=True)
+plt.show()
+>>>>>>> 469cc923943243eb509a174999dcfbd3857973c4
