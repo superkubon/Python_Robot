@@ -161,7 +161,7 @@ def verify_ik_with_fk(input_path):
 
 # -------------------- Chạy toàn bộ --------------------
 if __name__ == "__main__":
-    input_gcode = "D:/Work/Thesis/Robot_python/input_gcode/6_gcode.nc"
+    input_gcode = "D:/Work/Thesis/Robot_python/input_gcode/circle_gcode_2.nc"
     output_gcode = "D:/Work/Thesis/Robot_python/output_gcode/gcode_motor_movement_relative.txt"
     
     convert_gcode_to_motor_movement(input_gcode, output_gcode)
