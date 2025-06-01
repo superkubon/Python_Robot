@@ -6,13 +6,13 @@ import re
 
 # ===== Định nghĩa robot =====
 # L1, L2, L3, L4 = 0.1537, 0.1433, 0.077, 0.1203
-L1, L2, L3, L4 = 0.1537, 0.1433, 0.0, 0.1943
+L1, L2, L3, L4 = 0.1537, 0.1433, 0.0, 0.1443
 laser_extension = 0.075  # 7.5 cm
 deg = np.pi / 180
 robot = DHRobot([
     RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=np.pi/2, qlim=[-90 * deg, 90 * deg]),
-    RevoluteDH(d=0, a=L2, alpha=0, offset=-np.pi/3, qlim=[-75 * deg, 75 * deg]),
-    RevoluteDH(d=L3, a=0, alpha=np.pi/2, offset=np.pi, qlim=[-80 * deg, 80 * deg]),
+    RevoluteDH(d=0, a=L2, alpha=0, offset=-np.pi/2, qlim=[-90 * deg, 90 * deg]),
+    RevoluteDH(d=L3, a=0, alpha=np.pi/2, offset=np.pi/2, qlim=[-120 * deg, 120 * deg]),
     RevoluteDH(d=L4, a=0, alpha = np.pi/2, offset=0, qlim=[ -180* deg, 180 * deg])
 
 ], name='3DOF_Robot')
@@ -32,7 +32,7 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
     # Mục tiêu: Y luôn là [0, -1, 0]
     y_axis = np.array([0, -1, 0])  # Hướng Y của đầu cuối
     # Giả sử trục Z hướng lên (hoặc trùng với hướng làm việc)
-    z_axis = np.array([0, 0, 1])
+    z_axis = np.array([0, 0, 0])
     # Dùng tích có hướng để tìm trục X vuông góc với Y và Z
     x_axis = np.cross(y_axis, z_axis)
     # Xây ma trận quay (mỗi cột là một trục)
@@ -51,7 +51,7 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
 
         q_deg = np.degrees(ik_result.q)
 
-        if -90 < q_deg[0] < 90 and -80 < q_deg[1] < 80 and -80 < q_deg[2] < 80 :
+        if -90 < q_deg[0] < 90 and -120 < q_deg[1] < 120 and -120 < q_deg[2] < 120 :
             x_step = -q_deg[0] * STEP_CONVERT['X']
             y_step = -q_deg[1] * STEP_CONVERT['Y'] 
             z_step = q_deg[2] * STEP_CONVERT['Z'] 
@@ -116,7 +116,18 @@ print(f"🧠 GCODE_WIDTH: {gcode_width:.2f} mm | Tâm gốc: ({x_center:.2f}, {y
 # === Giai đoạn 2: Biến đổi và sinh G-code ===
 DRAW_WIDTH = 0.1  # mét
 SCALE = DRAW_WIDTH / gcode_width
-
+# ===== Di chuyển đến điểm tâm ban đầu =====
+x_init, y_init, z_init = 0.0, 0.2, 0.15  # Điểm trung tâm
+init_line, q_deg_init, q_rad_init = compute_gcode_line("G1", x_init, y_init, z_init)
+if init_line:
+    print(f"🚀 Di chuyển đến tâm: {init_line}")
+    print("🔧 Góc khớp (deg): q1 = {:.2f}, q2 = {:.2f}, q3 = {:.2f}, q4 = {:.2f}".format(*q_deg_init))
+    gcode_lines.append(init_line)
+    q_list.append(q_deg_init)
+    q0 = q_rad_init  # Cập nhật nghiệm gần nhất
+else:
+    print("❌ Không thể di chuyển đến điểm tâm đầu (0, 0.2, 0.15)")
+# ===== Đọc lại G-code và xử lý từng dòng =====
 for line in gcode_raw_lines:
     line = line.strip()
     match = pattern.search(line)
@@ -125,13 +136,13 @@ for line in gcode_raw_lines:
             gcode_lines.append(line)
         continue
 
-    cmd = match.group(1).upper()
+    cmd = match.group(1).upper()  
     x_gcode = float(match.group(2))
     y_gcode = float(match.group(3))
 
     # Scale và dịch tâm
     x = (x_gcode - x_center) * SCALE
-    z = (y_gcode - y_center) * SCALE + 0.15  # đặt tâm tại Z = 0.15
+    z = (y_gcode - y_center) * SCALE + 0.15   # đặt tâm tại Z = 0.15
     y = 0.2  # chiều cao cố định
 
     gcode_line, q_deg, q_rad = compute_gcode_line(cmd, x, y, z, q0=q0)

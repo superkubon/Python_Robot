@@ -6,11 +6,12 @@ from spatialmath import SE3
 
 # Định nghĩa robot
 L1, L2, L3, L4 = 0.1537, 0.1433, 0.0, 0.1943
+laser_extension = 0.075  # 7.5 cm
 deg = np.pi / 180
 robot = DHRobot([
     RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=np.pi/2, qlim=[-90 * deg, 90 * deg]),
-    RevoluteDH(d=0, a=L2, alpha=0, offset=-np.pi/3, qlim=[-75 * deg, 75 * deg]),
-    RevoluteDH(d=L3, a=0, alpha=np.pi/2, offset=np.pi, qlim=[-80 * deg, 80 * deg]),
+    RevoluteDH(d=0, a=L2, alpha=0, offset=-np.pi/2, qlim=[-90 * deg, 90 * deg]),
+    RevoluteDH(d=L3, a=0, alpha=np.pi/2, offset=np.pi/2, qlim=[-90 * deg, 90 * deg]),
     RevoluteDH(d=L4, a=0, alpha = np.pi/2, offset=0, qlim=[ -180* deg, 180 * deg])
 
 ], name='3DOF_Robot')

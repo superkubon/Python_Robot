@@ -45,7 +45,7 @@ STEP_CONVERT = {
 
 def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
     # T_goal = SE3(x, y, z) * SE3.OA([0, -1, 0], [0, 0, 1]) 
-    T_goal = SE3(x, y, z) 
+    T_goal = SE3(0, 0.2, 0.15) 
     # Base của laser ở xa điểm chiếu (ví dụ, 0.1m sau điểm)
     laser_offset = 0.1  # laser dài 10cm base_point cách aim_point
     aim_point = np.array([x, y, z])
