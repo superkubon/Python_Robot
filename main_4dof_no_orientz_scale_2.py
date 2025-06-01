@@ -29,15 +29,23 @@ STEP_CONVERT = {
 # ===== Hàm tính G-code giữ G0/G1 và ưu tiên nghiệm gần nhất =====
 
 def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
+    # Mục tiêu: Y luôn là [0, -1, 0]
     y_axis = np.array([0, -1, 0])  # Hướng Y của đầu cuối
-    
+    # Giả sử trục Z hướng lên (hoặc trùng với hướng làm việc)
+    z_axis = np.array([0, 0, 1])
+    # Dùng tích có hướng để tìm trục X vuông góc với Y và Z
+    x_axis = np.cross(y_axis, z_axis)
+    # Xây ma trận quay (mỗi cột là một trục)
+    R_goal = np.column_stack((x_axis, y_axis, z_axis))
+    # Vị trí mong muốn
+    # T_goal = SE3(R_goal) * SE3(x, y, z)
     T_goal = SE3(x, y, z)
     for attempt in range(max_attempts):
         ik_result = robot.ikine_LM(T_goal, q0=q0, mask=[1, 1, 1, 0, 1, 0])
         if ik_result.success:
             T_actual = robot.fkine(ik_result.q)
-            y_actual = T_actual.R[:, 1]
-            print("🔍 Y hướng thực tế của đầu cuối:", y_actual)            
+            # y_actual = T_actual.R[:, 1]
+            # print("🔍 Y hướng thực tế của đầu cuối:", y_actual)            
         if not ik_result.success:
             continue
 
@@ -45,8 +53,8 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
 
         if -90 < q_deg[0] < 90 and -80 < q_deg[1] < 80 and -80 < q_deg[2] < 80 :
             x_step = -q_deg[0] * STEP_CONVERT['X']
-            y_step = -q_deg[1] * STEP_CONVERT['Y'] - 20
-            z_step = q_deg[2] * STEP_CONVERT['Z'] +20
+            y_step = -q_deg[1] * STEP_CONVERT['Y'] 
+            z_step = q_deg[2] * STEP_CONVERT['Z'] 
             a_step = q_deg[3] * STEP_CONVERT['A']
             gcode_line = f"{cmd} X{x_step:.3f} Y{y_step:.3f} Z{z_step:.3f} A{a_step:.3f} F2700"
             return gcode_line, q_deg, ik_result.q
@@ -54,7 +62,7 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
     return None, None, None
 
 # ===== Đọc và xử lý file G-code =====
-input_file = "D:/Work/Thesis/Robot_python/input_gcode/6_gcode.nc"
+input_file = "D:/Work/Thesis/Robot_python/input_gcode/circle_gcode_2.nc"
 
 pattern = re.compile(
     r"^(G0|G1|G92)\s+.*?X([-+]?\d*\.?\d+)\s+Y([-+]?\d*\.?\d+)(?:\s+Z([-+]?\d*\.?\d+))?(?:\s+A([-+]?\d*\.?\d+))?",
@@ -132,21 +140,21 @@ for line in gcode_raw_lines:
     else:
         print(f"✅ {gcode_line}")
         print("🔧 Góc khớp (deg): q1 = {:.2f}, q2 = {:.2f}, q3 = {:.2f}, q4 = {:.2f}".format(*q_deg))
+        print(f"🔧 Thành công tại điểm: ({x:.3f}, {y:.3f}, {z:.3f})")
         gcode_lines.append(gcode_line)
         q_list.append(q_deg)
         q0 = q_rad
 
 # ===== Ghi file kết quả G-code =====
-output_file = "D:/Work/Thesis/Robot_python/output_gcode/circle_2.txt"
+output_file = "D:/Work/Thesis/Robot_python/output_gcode/circle_2_gcode.txt"
 with open(output_file, "w") as f:
     for line in gcode_lines:
         f.write(line + "\n")
 print(f"\n✅ Đã lưu {len(gcode_lines)} dòng vào '{output_file}'")
 
 # ===== Ghi file góc khớp ra file riêng =====
-angle_file = "D:/Work/Thesis/Robot_python/output_degree/gcode_degree.txt"
+angle_file = "D:/Work/Thesis/Robot_python/output_degree/circle_2_degree.txt"
 with open(angle_file, "w") as f:
-    f.write("q1_deg,q2_deg,q3_deg,q4_deg\n")
     for q_deg in q_list:
         f.write("{:.4f},{:.4f},{:.4f},{:.4f}\n".format(*q_deg))
 print(f"✅ Đã lưu góc khớp vào '{angle_file}'")
