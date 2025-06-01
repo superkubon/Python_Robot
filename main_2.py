@@ -35,6 +35,9 @@ def interpolate_cartesian(p_start, p_end, step_size=0.01):
 # ===== Hàm tính G-code giữ G0/G1 và ưu tiên nghiệm gần nhất =====
 def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
     T_goal = SE3(x, y, z)
+    BACKLASH_X_DEG = 7 / 60     # ~ 0.1167 độ
+    BACKLASH_Y_DEG = 3 / 60     # ~ 0.05 độ
+    prev_q_deg = None           # Để lưu góc khớp trước đó
 
     for attempt in range(max_attempts):
         ik_result = robot.ikine_LM(T_goal, q0=q0, mask=[1, 1, 1, 0, 0, 0])
@@ -42,7 +45,7 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
             continue
 
         q_deg = np.degrees(ik_result.q)
-
+        
         if -90 < q_deg[0] < 90 and -80 < q_deg[1] < 80 and -80 < q_deg[2] < 80:
             x_step = -q_deg[0] * STEP_CONVERT['X']
             y_step = -q_deg[1] * STEP_CONVERT['Y'] - 20

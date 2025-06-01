@@ -40,6 +40,12 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
     # Vị trí mong muốn
     # T_goal = SE3(R_goal) * SE3(x, y, z)
     T_goal = SE3(x, y, z)
+
+    #THÊM BACKLASH CHO ĐỘNG CƠ
+    BACKLASH_X_DEG = 7 / 60     # ~ 0.1167 độ
+    BACKLASH_Y_DEG = 3 / 60     # ~ 0.05 độ
+    prev_q_deg = None           # Để lưu góc khớp trước đó
+
     for attempt in range(max_attempts):
         ik_result = robot.ikine_LM(T_goal, q0=q0, mask=[1, 1, 1, 0, 1, 0])
         if ik_result.success:
@@ -48,9 +54,15 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
             # print("🔍 Y hướng thực tế của đầu cuối:", y_actual)            
         if not ik_result.success:
             continue
-
         q_deg = np.degrees(ik_result.q)
-
+        # Thêm backlash vào góc khớp# ===== BÙ BACKLASH =====
+        if prev_q_deg is not None:
+            # Kiểm tra nếu khớp đổi hướng → bù backlash
+            if np.sign(q_deg[0] - prev_q_deg[0]) != np.sign(prev_q_deg[0]):
+                q_deg[0] += BACKLASH_X_DEG * np.sign(q_deg[0] - prev_q_deg[0])
+            if np.sign(q_deg[1] - prev_q_deg[1]) != np.sign(prev_q_deg[1]):
+                q_deg[1] += BACKLASH_Y_DEG * np.sign(q_deg[1] - prev_q_deg[1])
+        prev_q_deg = q_deg.copy()
         if -90 < q_deg[0] < 90 and -120 < q_deg[1] < 120 and -120 < q_deg[2] < 120 :
             x_step = -q_deg[0] * STEP_CONVERT['X']
             y_step = -q_deg[1] * STEP_CONVERT['Y'] 
@@ -62,7 +74,7 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
     return None, None, None
 
 # ===== Đọc và xử lý file G-code =====
-input_file = "D:/Work/Thesis/Robot_python/input_gcode/circle_gcode_2.nc"
+input_file = "D:/Work/Thesis/Robot_python/input_gcode/square_5.nc"
 
 pattern = re.compile(
     r"^(G0|G1|G92)\s+.*?X([-+]?\d*\.?\d+)\s+Y([-+]?\d*\.?\d+)(?:\s+Z([-+]?\d*\.?\d+))?(?:\s+A([-+]?\d*\.?\d+))?",
@@ -117,12 +129,13 @@ print(f"🧠 GCODE_WIDTH: {gcode_width:.2f} mm | Tâm gốc: ({x_center:.2f}, {y
 DRAW_WIDTH = 0.1  # mét
 SCALE = DRAW_WIDTH / gcode_width
 # ===== Di chuyển đến điểm tâm ban đầu =====
-x_init, y_init, z_init = 0.0, 0.2, 0.15  # Điểm trung tâm
+x_init, y_init, z_init = 0.0, 0.2, 0.25  # Điểm trung tâm
 init_line, q_deg_init, q_rad_init = compute_gcode_line("G1", x_init, y_init, z_init)
 if init_line:
     print(f"🚀 Di chuyển đến tâm: {init_line}")
     print("🔧 Góc khớp (deg): q1 = {:.2f}, q2 = {:.2f}, q3 = {:.2f}, q4 = {:.2f}".format(*q_deg_init))
     gcode_lines.append(init_line)
+    gcode_lines.append("G92 X0 Y0 Z0 A0")
     q_list.append(q_deg_init)
     q0 = q_rad_init  # Cập nhật nghiệm gần nhất
 else:
@@ -142,7 +155,7 @@ for line in gcode_raw_lines:
 
     # Scale và dịch tâm
     x = (x_gcode - x_center) * SCALE
-    z = (y_gcode - y_center) * SCALE + 0.15   # đặt tâm tại Z = 0.15
+    z = (y_gcode - y_center) * SCALE + 0.25   # đặt tâm tại Z = 0.15
     y = 0.2  # chiều cao cố định
 
     gcode_line, q_deg, q_rad = compute_gcode_line(cmd, x, y, z, q0=q0)
@@ -157,14 +170,14 @@ for line in gcode_raw_lines:
         q0 = q_rad
 
 # ===== Ghi file kết quả G-code =====
-output_file = "D:/Work/Thesis/Robot_python/output_gcode/circle_2_gcode.txt"
+output_file = "D:/Work/Thesis/Robot_python/output_gcode/square_5_gcode_BACKLASH.txt"
 with open(output_file, "w") as f:
     for line in gcode_lines:
         f.write(line + "\n")
 print(f"\n✅ Đã lưu {len(gcode_lines)} dòng vào '{output_file}'")
 
 # ===== Ghi file góc khớp ra file riêng =====
-angle_file = "D:/Work/Thesis/Robot_python/output_degree/circle_2_degree.txt"
+angle_file = "D:/Work/Thesis/Robot_python/output_degree/square_5_degree_BACKLASH.txt"
 with open(angle_file, "w") as f:
     for q_deg in q_list:
         f.write("{:.4f},{:.4f},{:.4f},{:.4f}\n".format(*q_deg))
