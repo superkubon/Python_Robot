@@ -74,7 +74,7 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
     return None, None, None
 
 # ===== Đọc và xử lý file G-code =====
-input_file = "D:/Work/Thesis/Robot_python/input_gcode/square_5.nc"
+input_file = "D:/Work/Thesis/Robot_python/input_gcode/circle_gcode_2.nc"
 
 pattern = re.compile(
     r"^(G0|G1|G92)\s+.*?X([-+]?\d*\.?\d+)\s+Y([-+]?\d*\.?\d+)(?:\s+Z([-+]?\d*\.?\d+))?(?:\s+A([-+]?\d*\.?\d+))?",
@@ -170,14 +170,14 @@ for line in gcode_raw_lines:
         q0 = q_rad
 
 # ===== Ghi file kết quả G-code =====
-output_file = "D:/Work/Thesis/Robot_python/output_gcode/square_5_gcode_BACKLASH.txt"
+output_file = "D:/Work/Thesis/Robot_python/output_gcode/circle_2_gcode_BACKLASH.txt"
 with open(output_file, "w") as f:
     for line in gcode_lines:
         f.write(line + "\n")
 print(f"\n✅ Đã lưu {len(gcode_lines)} dòng vào '{output_file}'")
 
 # ===== Ghi file góc khớp ra file riêng =====
-angle_file = "D:/Work/Thesis/Robot_python/output_degree/square_5_degree_BACKLASH.txt"
+angle_file = "D:/Work/Thesis/Robot_python/output_degree/circle_2_degree_BACKLASH.txt"
 with open(angle_file, "w") as f:
     for q_deg in q_list:
         f.write("{:.4f},{:.4f},{:.4f},{:.4f}\n".format(*q_deg))
