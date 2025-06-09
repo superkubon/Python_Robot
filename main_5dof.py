@@ -6,25 +6,27 @@ import re
 
 # ===== Định nghĩa robot =====
 # L1, L2, L3, L4 = 0.1537, 0.1433, 0.077, 0.1203
-L1, L2, L3, L4 = 0.1537, 0.1433, 0.0, 0.1443
+L1, L2, L3, L4, L5 = 0.1537, 0.1433, 0.0, 0.1443, 0.07
 laser_extension = 0.075  # 7.5 cm
 deg = np.pi / 180
 robot = DHRobot([
     RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=np.pi/2, qlim=[-90 * deg, 90 * deg]),
     RevoluteDH(d=0, a=L2, alpha=0, offset=-np.pi/2, qlim=[-90 * deg, 90 * deg]),
     RevoluteDH(d=L3, a=0, alpha=np.pi/2, offset=np.pi/2, qlim=[-120 * deg, 120 * deg]),
-    RevoluteDH(d=L4, a=0, alpha = np.pi/2, offset=0, qlim=[ -180* deg, 180 * deg])
-
+    RevoluteDH(d=L4, a=0, alpha = np.pi/2, offset=0, qlim=[ -180* deg, 180 * deg]),
+    RevoluteDH(d=0, a=L5, alpha = np.pi/2, offset=np.pi/2, qlim=[ -180* deg, 180 * deg])
 ], name='3DOF_Robot')
-q = np.zeros(4)  # Khởi tạo nghiệm ban đầu là 0
+q = np.zeros(5)  # Khởi tạo nghiệm ban đầu là 0
 robot.teach(q)
 # ===== Hệ số chuyển đổi góc → bước (mm) =====
 STEP_CONVERT = {
     'X': 0.355555556,
-    'Y': 0.355555556,
-    'Z': 0.216666667,
-    'A': 0.133333,
+    'Y': 0.7166666666666667,
+    'Z': 0.2222222222222222,
+    'A': 0.1388888888888889,
+    'B': 0.1388888888888889
 }
+
 # ===== Hàm nội suy tuyến tính giữa hai điểm trong không gian 3D =====
 def interpolate_points(p1, p2, step_size=0.002):
     """Nội suy tuyến tính giữa hai điểm trong không gian 3D."""
@@ -58,7 +60,7 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
     prev_q_deg = None           # Để lưu góc khớp trước đó
 
     for attempt in range(max_attempts):
-        ik_result = robot.ikine_LM(T_goal, q0=q0, mask=[1, 1, 1, 0, 1, 0])
+        ik_result = robot.ikine_LM(T_goal, q0=q0, mask=[1, 1, 1, 0, 0, 0])
         if ik_result.success:
             T_actual = robot.fkine(ik_result.q)
             # y_actual = T_actual.R[:, 1]
@@ -78,24 +80,24 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
             if np.sign(q_deg[1] - prev_q_deg[1]) != np.sign(prev_q_deg[1]):
                 q_deg[1] += BACKLASH_Y_DEG * np.sign(q_deg[1] - prev_q_deg[1])
         prev_q_deg = q_deg.copy()
-        if -90 < q_deg[0] < 90 and -120 < q_deg[1] < 120 and -120 < q_deg[2] < 120 :
+        if -90 < q_deg[0] < 90 and -120 < q_deg[1] < 120 and -120 < q_deg[2] < 120 and -180 < q_deg[3] < 180 and -90 < q_deg[4] < 90:
             x_step = -q_deg[0] * STEP_CONVERT['X']
             y_step = -q_deg[1] * STEP_CONVERT['Y'] 
             z_step = q_deg[2] * STEP_CONVERT['Z'] 
             a_step = q_deg[3] * STEP_CONVERT['A']
-            gcode_line = f"{cmd} X{x_step:.2f} Y{y_step:.2f} Z{z_step:.2f} A{a_step:.2f} F2000"
+            b_step = q_deg[4] * STEP_CONVERT['B']
+            gcode_line = f"{cmd} X{x_step:.2f} Y{y_step:.2f} Z{z_step:.2f} A{a_step:.2f} B{b_step:.2f} F2000"
             return gcode_line, q_deg, ik_result.q
 
     return None, None, None
 
 # ===== Đọc và xử lý file G-code ===== 
-input_file = "D:/Work/Thesis/Robot_python/input_gcode/Square_gcode.nc"
+input_file = "D:/Work/Thesis/Robot_python/input_gcode/circle_gcode.nc"
 
 pattern = re.compile(
-    r"^(G0|G1)\s+.*?X([-+]?\d*\.?\d+)\s+Y([-+]?\d*\.?\d+)(?:\s+Z([-+]?\d*\.?\d+))?(?:\s+A([-+]?\d*\.?\d+))?",
+    r"^(G0|G1)\s+.*?X([-+]?\d*\.?\d+)\s+Y([-+]?\d*\.?\d+)(?:\s+Z([-+]?\d*\.?\d+))?(?:\s+A([-+]?\d*\.?\d+))?\s*(?:B([-+]?\d*\.?\d+))?\s*$",
     re.IGNORECASE
 )
-
 
 gcode_lines = []
 q_list = []
@@ -155,7 +157,7 @@ if init_line:
     y_step = -q_deg_init[1] * STEP_CONVERT['Y']
     z_step = q_deg_init[2] * STEP_CONVERT['Z']
     a_step = q_deg_init[3] * STEP_CONVERT['A']
-    gcode_lines.append(f"G92 X{x_step:.1f} Y{y_step:.1f} Z{z_step:.1f} A{a_step:.1f}")
+    # gcode_lines.append(f"G92 X{x_step:.1f} Y{y_step:.1f} Z{z_step:.1f} A{a_step:.1f}")
     q_list.append(q_deg_init)
     q0 = q_rad_init  # Cập nhật nghiệm gần nhất
 else:
@@ -183,7 +185,7 @@ for line in gcode_raw_lines:
 
     if prev_point is not None:
         # Nội suy giữa prev_point và current_point
-        interpolated_points = interpolate_points(prev_point, current_point, step_size=0.0001)
+        interpolated_points = interpolate_points(prev_point, current_point, step_size=0.0005)
         for pt in interpolated_points:
             gcode_line, q_deg, q_rad = compute_gcode_line(cmd, pt[0], pt[1], pt[2], q0=q0)
             if q_rad is None:
@@ -206,14 +208,14 @@ for line in gcode_raw_lines:
 
 
 # ===== Ghi file kết quả G-code =====
-output_file = "D:/Work/Thesis/Robot_python/output_gcode/Square_gcode_5.txt"
+output_file = "D:/Work/Thesis/Robot_python/output_gcode/circle_gcode_6.txt"
 with open(output_file, "w") as f:
     for line in gcode_lines:
         f.write(line + "\n")
 print(f"\n✅ Đã lưu {len(gcode_lines)} dòng vào '{output_file}'")
 
 # ===== Ghi file góc khớp ra file riêng =====
-angle_file = "D:/Work/Thesis/Robot_python/output_degree/Square_degree_5.txt"
+angle_file = "D:/Work/Thesis/Robot_python/output_degree/circle_degree_6.txt"
 with open(angle_file, "w") as f:
     for q_deg in q_list:
         f.write("{:.4f},{:.4f},{:.4f},{:.4f}\n".format(*q_deg))
