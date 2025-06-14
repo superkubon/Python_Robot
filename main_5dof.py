@@ -12,19 +12,15 @@ deg = np.pi / 180
 robot = DHRobot([
     RevoluteDH(d=L1, a=0, alpha=-np.pi/2, offset=np.pi/2, qlim=[-90 * deg, 90 * deg]),
     RevoluteDH(d=0, a=L2, alpha=0, offset=-np.pi/2, qlim=[-90 * deg, 90 * deg]),
-    RevoluteDH(d=L3, a=0, alpha=np.pi/2, offset=np.pi/2, qlim=[-120 * deg, 120 * deg]),
-    RevoluteDH(d=L4, a=0, alpha = np.pi/2, offset=0, qlim=[ -180* deg, 180 * deg]),
-    RevoluteDH(d=0, a=L5, alpha = np.pi/2, offset=np.pi/2, qlim=[ -180* deg, 180 * deg])
+    RevoluteDH(d=0, a=L4, alpha=np.pi/2, offset=0, qlim=[-120 * deg, 120 * deg]),
 ], name='3DOF_Robot')
-q = np.zeros(5)  # Khởi tạo nghiệm ban đầu là 0
+q = np.zeros(3)  # Khởi tạo nghiệm ban đầu là 0
 robot.teach(q)
 # ===== Hệ số chuyển đổi góc → bước (mm) =====
 STEP_CONVERT = {
     'X': 0.355555556,
     'Y': 0.7166666666666667,
     'Z': 0.2222222222222222,
-    'A': 0.1388888888888889,
-    'B': 0.1388888888888889
 }
 
 # ===== Hàm nội suy tuyến tính giữa hai điểm trong không gian 3D =====
@@ -41,19 +37,9 @@ def interpolate_points(p1, p2, step_size=0.002):
 # ===== Hàm tính G-code giữ G0/G1 và ưu tiên nghiệm gần nhất =====
 
 def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
-    # Mục tiêu: Y luôn là [0, -1, 0]
-    y_axis = np.array([0, -1, 0])  # Hướng Y của đầu cuối
-    # Giả sử trục Z hướng lên (hoặc trùng với hướng làm việc)
-    z_axis = np.array([0, 0, 1])
-    # Dùng tích có hướng để tìm trục X vuông góc với Y và Z
-    x_axis = np.cross(y_axis, z_axis).astype(float)
-    x_axis /= np.linalg.norm(x_axis)  # chuẩn hóa
-    # Xây ma trận quay (mỗi cột là một trục)
-    R_goal = np.column_stack((x_axis, y_axis, z_axis))
     # Vị trí mong muốn
-    # T_goal = SE3(R_goal) * SE3(x, y, z)
     T_goal = SE3(x, y, z)
-
+    # T_goal = SE3(x, y, z) * SE3.OA([1, 0, 0], [0, 1, 0])
     #THÊM BACKLASH CHO ĐỘNG CƠ
     BACKLASH_X_DEG = 7 / 60     # ~ 0.1167 độ
     BACKLASH_Y_DEG = 3 / 60     # ~ 0.05 độ
@@ -80,19 +66,16 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
             if np.sign(q_deg[1] - prev_q_deg[1]) != np.sign(prev_q_deg[1]):
                 q_deg[1] += BACKLASH_Y_DEG * np.sign(q_deg[1] - prev_q_deg[1])
         prev_q_deg = q_deg.copy()
-        if -90 < q_deg[0] < 90 and -120 < q_deg[1] < 120 and -120 < q_deg[2] < 120 and -180 < q_deg[3] < 180 and -90 < q_deg[4] < 90:
+        if -90 < q_deg[0] < 90 and -120 < q_deg[1] < 120 and -110 < q_deg[2] < 110:
             x_step = -q_deg[0] * STEP_CONVERT['X']
             y_step = -q_deg[1] * STEP_CONVERT['Y'] 
             z_step = q_deg[2] * STEP_CONVERT['Z'] 
-            a_step = q_deg[3] * STEP_CONVERT['A']
-            b_step = q_deg[4] * STEP_CONVERT['B']
-            gcode_line = f"{cmd} X{x_step:.2f} Y{y_step:.2f} Z{z_step:.2f} A{a_step:.2f} B{b_step:.2f} F2000"
+            gcode_line = f"{cmd} X{x_step:.2f} Y{y_step:.2f} Z{z_step:.2f} F2000"
             return gcode_line, q_deg, ik_result.q
-
     return None, None, None
 
 # ===== Đọc và xử lý file G-code ===== 
-input_file = "D:/Work/Thesis/Robot_python/input_gcode/circle_gcode.nc"
+input_file = "D:/Work/Thesis/Robot_python/input_gcode/Square_gcode.nc"
 
 pattern = re.compile(
     r"^(G0|G1)\s+.*?X([-+]?\d*\.?\d+)\s+Y([-+]?\d*\.?\d+)(?:\s+Z([-+]?\d*\.?\d+))?(?:\s+A([-+]?\d*\.?\d+))?\s*(?:B([-+]?\d*\.?\d+))?\s*$",
@@ -150,13 +133,12 @@ x_init, y_init, z_init = 0.0, 0.2, 0.2  # Điểm trung tâm
 init_line, q_deg_init, q_rad_init = compute_gcode_line("G1", x_init, y_init, z_init)
 if init_line:
     print(f"🚀 Di chuyển đến tâm: {init_line}")
-    print("🔧 Góc khớp (deg): q1 = {:.1f}, q2 = {:.1f}, q3 = {:.1f}, q4 = {:.1f}".format(*q_deg_init))
+    print("🔧 Góc khớp (deg): q1 = {:.1f}, q2 = {:.1f}, q3 = {:.1f}".format(*q_deg_init))
     gcode_lines.append(init_line)
     # Tính lại step và ghi G92 đúng với tọa độ hiện tại
     x_step = -q_deg_init[0] * STEP_CONVERT['X']
     y_step = -q_deg_init[1] * STEP_CONVERT['Y']
     z_step = q_deg_init[2] * STEP_CONVERT['Z']
-    a_step = q_deg_init[3] * STEP_CONVERT['A']
     # gcode_lines.append(f"G92 X{x_step:.1f} Y{y_step:.1f} Z{z_step:.1f} A{a_step:.1f}")
     q_list.append(q_deg_init)
     q0 = q_rad_init  # Cập nhật nghiệm gần nhất
@@ -178,8 +160,8 @@ for line in gcode_raw_lines:
 
     # Scale và dịch tâm
     x = (x_gcode - x_center) * SCALE
-    z = (y_gcode - y_center) * SCALE + 0.2     # đặt tâm tại Z = 0.2
-    y = 0.2  # chiều cao cố định
+    z = (y_gcode - y_center) * SCALE + 0.25     # đặt tâm tại Z = 0.2
+    y = 0.3  # chiều cao cố định
 
     current_point = np.array([x, y, z])
 
@@ -208,17 +190,17 @@ for line in gcode_raw_lines:
 
 
 # ===== Ghi file kết quả G-code =====
-output_file = "D:/Work/Thesis/Robot_python/output_gcode/circle_gcode_6.txt"
+output_file = "D:/Work/Thesis/Robot_python/output_gcode/Square_gcode_9.txt"
 with open(output_file, "w") as f:
     for line in gcode_lines:
         f.write(line + "\n")
 print(f"\n✅ Đã lưu {len(gcode_lines)} dòng vào '{output_file}'")
 
 # ===== Ghi file góc khớp ra file riêng =====
-angle_file = "D:/Work/Thesis/Robot_python/output_degree/circle_degree_6.txt"
+angle_file = "D:/Work/Thesis/Robot_python/output_degree/Square_degree_9.txt"
 with open(angle_file, "w") as f:
     for q_deg in q_list:
-        f.write("{:.4f},{:.4f},{:.4f},{:.4f}\n".format(*q_deg))
+        f.write("{:.4f},{:.4f},{:.4f}\n".format(*q_deg))
 print(f"✅ Đã lưu góc khớp vào '{angle_file}'")
 
 #===== Plot đường đi đầu cuối =====
@@ -256,4 +238,3 @@ if q_list:
 
 else:
     print("⚠️ Không có điểm nào để vẽ quỹ đạo.")
-
