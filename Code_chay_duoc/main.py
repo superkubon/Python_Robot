@@ -1,8 +1,10 @@
-import numpy as np
 import matplotlib.pyplot as plt
 from roboticstoolbox import DHRobot, RevoluteDH
 from spatialmath import SE3
 import re
+import time
+import numpy as np
+start_time = time.time()
 
 # ===== Định nghĩa robot =====
 L1, L2, L3, L4, L5 = 0.211, 0.15, 0.0, 0.23, 0.07
@@ -59,15 +61,15 @@ def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
 
         if -90 < q_deg[0] < 90 and -120 < q_deg[1] < 120 and -120 < q_deg[2] < 120 :
             x_step = -q_deg[0] * STEP_CONVERT['X']
-            y_step = -q_deg[1] * STEP_CONVERT['Y'] 
+            y_step = q_deg[1] * STEP_CONVERT['Y'] 
             z_step = q_deg[2] * STEP_CONVERT['Z'] 
-            gcode_line = f"{cmd} X{x_step:.2f} Y{y_step:.2f} Z{z_step:.2f} F2000"
+            gcode_line = f"{cmd} X{x_step:.2f} Y{y_step:.2f} Z{z_step:.2f} F850"
             return gcode_line, q_deg, ik_result.q
 
     return None, None, None
 
 # ===== Đọc và xử lý file G-code ===== 
-input_file = "D:/Work/Thesis/Robot_python/input_gcode/circle_gcode.nc"
+input_file = "D:/Work/Thesis/Robot_python/input_gcode/4_gcode.nc"
 
 pattern = re.compile(
     r"^(G0|G1)\s+.*?X([-+]?\d*\.?\d+)\s+Y([-+]?\d*\.?\d+)(?:\s+Z([-+]?\d*\.?\d+))?",
@@ -108,11 +110,9 @@ gcode_width = max(x_max - x_min, y_max - y_min)
 print(f"🧠 GCODE_WIDTH: {gcode_width:.1f} mm | Tâm gốc: ({x_center:.1f}, {y_center:.1f}, {z_center:.1f})")
 
 # ===== Giai đoạn 2: Biến đổi và sinh G-code ==== 
-DRAW_WIDTH = 0.1  # mét
+DRAW_WIDTH = 0.06  # mét
 SCALE = DRAW_WIDTH / gcode_width
 def set_axes_equal(ax):
-    import numpy as np
-
     x_limits = ax.get_xlim3d()
     y_limits = ax.get_ylim3d()
     z_limits = ax.get_zlim3d()
@@ -133,17 +133,17 @@ def set_axes_equal(ax):
 x_offset = None  # Khởi tạo offset X là None
 z_offset = None  # Khởi tạo offset X là None
 # ===== Di chuyển đến điểm tâm ban đầu =====
-x_init, y_init, z_init = 0,0.2,0.05
+x_init, y_init, z_init = 0,0.295,0.2
 init_line, q_deg_init, q_rad_init = compute_gcode_line("G1", x_init, y_init, z_init)
 if init_line:
     print(f"🚀 Di chuyển đến tâm: {init_line}")
     print("🔧 Góc khớp (deg): q1 = {:.1f}, q2 = {:.1f}, q3 = {:.1f}".format(*q_deg_init))
     # Tính số bước cho G92 và G1 từ góc khớp
     x_step = -q_deg_init[0] * STEP_CONVERT['X']
-    y_step = -q_deg_init[1] * STEP_CONVERT['Y']
+    y_step = q_deg_init[1] * STEP_CONVERT['Y']
     z_step = q_deg_init[2] * STEP_CONVERT['Z']
     gcode_lines.append(f"G92 X{x_step:.2f}")  # Lệnh G92 chỉ có X
-    gcode_lines.append(f"G1 Y{y_step:.2f} Z{z_step:.2f} F2000")  # Lệnh G1 đầy đủ
+    gcode_lines.append(f"G1 Y{y_step:.2f} Z{z_step:.2f} F850")  # Lệnh G1 đầy đủ
     q_list.append(q_deg_init)
     q0 = q_rad_init  # Cập nhật nghiệm gần nhất
 else:
@@ -159,14 +159,14 @@ for line in gcode_raw_lines:
             gcode_lines.append(line)
         continue
 
-    cmd = match.group(1).upper()  
+    cmd = "G1"  
     x_gcode = float(match.group(2))
     y_gcode = float(match.group(3))
 
     # Scale và dịch tâm
     x = (x_gcode - x_center) * SCALE
-    z = (y_gcode - y_center) * SCALE + 0.05   # Đặt tâm tại Z = 0.2
-    y = 0.2  # Chiều cao cố định
+    z = (y_gcode - y_center) * SCALE + 0.2 # Đặt tâm tại Z = 0.2
+    y = 0.295  # Chiều cao cố định
 
     gcode_line, q_deg, q_rad = compute_gcode_line(cmd, x, y, z, q0=q0)
     if q_rad is None:
@@ -177,14 +177,17 @@ for line in gcode_raw_lines:
         q0 = q_rad
 
 # ===== Ghi file kết quả G-code =====
-output_file = "D:/Work/Thesis/Robot_python/output_gcode/circle_gcode_9.txt"
+output_file = "D:/Work/Thesis/Robot_python/output_gcode/4_gcode_small.txt"
 with open(output_file, "w") as f:
     for line in gcode_lines:
         f.write(line + "\n")
 print(f"\n✅ Đã lưu {len(gcode_lines)} dòng vào '{output_file}'")
+end_time = time.time()
+print(f"⏱️ Thời gian chuyển đổi G-code: {end_time - start_time:.3f} giây")
+
 
 # ===== Ghi file góc khớp ra file riêng =====
-angle_file = "D:/Work/Thesis/Robot_python/output_degree/circle_degree_9.txt"
+angle_file = "D:/Work/Thesis/Robot_python/output_degree/6_degree_final.txt"
 with open(angle_file, "w") as f:
     for q_deg in q_list:
         f.write("{:.4f},{:.4f},{:.4f}\n".format(*q_deg))
@@ -199,7 +202,7 @@ if q_list:
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-    ax.plot(xs, zs, ys, label='Quỹ đạo đầu cuối', linewidth=2.5)
+    ax.plot(xs, zs, ys, label='Quỹ đạo đầu cuối', linewidth=2.5, marker='o')
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Z (m)")  # Đổi nhãn ở đây
     ax.set_zlabel("Y (m)")  # Đổi nhãn ở đây
